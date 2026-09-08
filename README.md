@@ -1,21 +1,20 @@
 # packettracer-distrobox
 
-Run Cisco Packet Tracer on any Linux distribution (Fedora, Arch Linux, openSUSE, Debian, Void, etc.) using Distrobox and Podman or Docker.
+Guide for running Cisco Packet Tracer on any Linux distribution (Fedora, Arch Linux, openSUSE, Debian, Void, etc.) using Distrobox.
 
-## Why this exists
+## Why this approach
 
-Cisco only distributes Packet Tracer for Linux as an Ubuntu `.deb` package. Inside the package, Packet Tracer runs as an AppImage coupled to specific library versions (Qt6, WebEngine, NSS, OpenSSL, and FUSE).
+Cisco only distributes Packet Tracer for Linux as an Ubuntu `.deb` package. Inside the `.deb`, Packet Tracer runs as an AppImage with bundled Qt6 and WebEngine components.
 
-Installing Packet Tracer directly on non-Ubuntu distributions or newer distributions usually fails:
-- Direct `.deb` conversion tools (such as `alien` or RPM conversion scripts) break when host shared libraries diverge.
-- The bundled AppImage requires FUSE, but older AppImage runtimes look specifically for `/bin/fusermount`, while modern distributions provide `fusermount3`.
-- Minimal container images miss desktop OpenGL, NSS, and audio shared libraries, leading to missing symbol errors during startup.
+Running it directly on non-Ubuntu hosts or converting the package with tools like `alien` often fails due to library mismatches (glibc, OpenSSL, NSS). Running it in an Ubuntu Distrobox container solves this while keeping your host display server (Wayland or X11), audio, GPU, and files accessible.
 
-Distrobox isolates the Ubuntu runtime while keeping your host display server (Wayland or X11), GPU acceleration, audio, and home directory accessible.
+Two specific quirks in Packet Tracer 9.x need manual attention:
+1. **FUSE executable mismatch**: The bundled AppImage calls `fusermount`, but Ubuntu 24.04+ base images only provide `/bin/fusermount3`. Without a symlink, launch fails silently or outputs `fuse: failed to exec fusermount`.
+2. **Missing desktop registration**: The Cisco `.deb` extracts an AppImage to `/opt/pt/` without installing a system `.desktop` file into `/usr/share/applications`. `distrobox-export` needs a proper `.desktop` file before it can expose the app to your host desktop environment.
 
 ## Prerequisites
 
-On your host machine, install `distrobox` and either `podman` or `docker`:
+Install `distrobox` and a container engine (`podman` or `docker`) using your host package manager:
 
 - Fedora: `sudo dnf install distrobox podman`
 - Arch Linux: `sudo pacman -S distrobox podman`
@@ -24,29 +23,11 @@ On your host machine, install `distrobox` and either `podman` or `docker`:
 
 Download the official Cisco Packet Tracer `.deb` installer from Cisco NetAcad or Skills for All.
 
-## Quick install
-
-Run the install script from your host, passing the path to the downloaded `.deb`:
-
-```sh
-git clone https://github.com/Bukutsu/packettracer-distrobox.git
-cd packettracer-distrobox
-./install.sh ~/Downloads/CiscoPacketTracer_9.0.1_Ubuntu_64bit.deb
-```
-
-The script creates an Ubuntu container (default name `ubuntu_box`), installs required runtime libraries, installs the deb, extracts the application icon, and exports the desktop entry and binary to your host.
-
-To customize the container name:
-
-```sh
-CONTAINER_NAME=ciscobox ./install.sh /path/to/packettracer.deb
-```
-
-## Manual installation
-
-If you prefer running the commands step by step:
+## Step-by-step setup
 
 ### 1. Create and enter the container
+
+Create a container named `ubuntu_box` using the official Ubuntu image, then enter it:
 
 ```sh
 distrobox create --name ubuntu_box --image docker.io/library/ubuntu:latest --yes
@@ -55,9 +36,11 @@ distrobox enter ubuntu_box
 
 ### 2. Install dependencies inside the container
 
+Update package lists and install FUSE along with runtime libraries needed by Packet Tracer's GUI and QtWebEngine:
+
 ```sh
-sudo apt-get update
-sudo apt-get install -y \
+sudo apt update
+sudo apt install -y \
     fuse3 \
     libopengl0 \
     libgl1 \
@@ -70,7 +53,7 @@ sudo apt-get install -y \
     libglib2.0-bin
 ```
 
-Link `fusermount3` to `fusermount` so the AppImage runtime can mount its SquashFS layer:
+Link `fusermount3` so the AppImage runtime can mount itself:
 
 ```sh
 sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
@@ -78,20 +61,28 @@ sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
 
 ### 3. Install the Cisco package
 
-Replace the path with the location of your downloaded `.deb`:
+Install the `.deb` file you downloaded. Distrobox mounts your host home directory automatically, so your files in `~/Downloads` are available:
 
 ```sh
-sudo apt-get install -y /home/username/Downloads/CiscoPacketTracer_9.0.1_Ubuntu_64bit.deb
+sudo apt install -y ~/Downloads/CiscoPacketTracer_9.0.1_Ubuntu_64bit.deb
 ```
 
-### 4. Extract application icon and configure desktop entry
+Adjust the filename if you have a different version.
+
+### 4. Set up desktop entry and icon
+
+Extract the bundled icon from the AppImage and install it system-wide inside the container:
 
 ```sh
 cd /tmp
 /opt/pt/packettracer.AppImage --appimage-extract app.png
 sudo cp squashfs-root/app.png /usr/share/pixmaps/packettracer.png
 rm -rf squashfs-root
+```
 
+Create `/usr/share/applications/packettracer.desktop`:
+
+```sh
 sudo tee /usr/share/applications/packettracer.desktop > /dev/null << 'EOF'
 [Desktop Entry]
 Name=Cisco Packet Tracer
@@ -105,80 +96,91 @@ MimeType=application/x-pkt;application/x-pka;application/x-pkz;application/x-pks
 EOF
 ```
 
-### 5. Export to the host
+### 5. Export binary and desktop launcher to host
 
-Export the command line wrapper and desktop launcher:
+Inside the container, run:
 
 ```sh
 distrobox-export --bin /usr/local/bin/packettracer --export-path ~/.local/bin
 distrobox-export --app packettracer --export-label none
 ```
 
-Copy the icon to your host icons directory:
+Now exit back to your host:
 
 ```sh
 exit
-mkdir -p ~/.local/share/icons
-distrobox enter ubuntu_box -- cat /usr/share/pixmaps/packettracer.png > ~/.local/share/icons/packettracer.png
-update-desktop-database ~/.local/share/applications || true
 ```
 
-## Usage
+### 6. Copy icon and refresh host desktop database
 
-From your terminal on the host:
+On your host terminal, place the icon in `~/.local/share/icons/` so your host desktop environment renders it:
+
+```sh
+mkdir -p ~/.local/share/icons
+distrobox enter ubuntu_box -- cat /usr/share/pixmaps/packettracer.png > ~/.local/share/icons/packettracer.png
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+```
+
+## Running
+
+From any host terminal:
 
 ```sh
 packettracer
 ```
 
-Or open "Cisco Packet Tracer" from your desktop application launcher (GNOME, KDE Plasma, XFCE, etc.).
+Or open **Cisco Packet Tracer** from your host application launcher (GNOME, KDE Plasma, XFCE, etc.).
 
 ## Troubleshooting
 
 ### AppImage fails to mount (`fuse: failed to exec fusermount`)
 
-Packet Tracer packages an AppImage that expects the executable name `fusermount`. Modern Ubuntu packages only supply `fusermount3`.
-
-Fix inside the container:
+Verify the symlink inside the container:
 
 ```sh
-sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
+distrobox enter ubuntu_box -- which fusermount
 ```
 
-If your container environment restricts FUSE mounting entirely, you can run the AppImage using extraction mode:
+If missing, recreate it:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 packettracer
+distrobox enter ubuntu_box -- sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
 ```
 
-### Missing shared library errors
+If your kernel or container environment forbids FUSE mounts, tell the AppImage to extract to a temporary directory before running:
 
-If running `packettracer` produces:
+```sh
+distrobox enter ubuntu_box -- env APPIMAGE_EXTRACT_AND_RUN=1 packettracer
+```
+
+### Missing shared libraries (`libOpenGL.so.0`, `libnss3`, etc.)
+
+If Packet Tracer exits with:
 
 ```
 ./PacketTracer: error while loading shared libraries: libOpenGL.so.0: cannot open shared object file
 ```
 
-Install the missing graphics and system libraries inside the container:
+Install the missing packages inside the container:
 
 ```sh
-sudo apt-get install -y libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0 libdeflate0 libjbig0
+distrobox enter ubuntu_box -- sudo apt install -y libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0 libdeflate0 libjbig0
 ```
 
 ### Benign console warnings
 
-When starting from a terminal, you may see:
+Console output containing:
 
 ```
 [...:ERROR:bus.cc(...)] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket
 sh: 1: last: not found
 ```
 
-These are harmless warnings from QtWebEngine checking for a system D-Bus daemon and the `last` utility inside the container. They do not prevent Packet Tracer from functioning normally.
+These come from QtWebEngine looking for system D-Bus and the `last` command. They do not affect Packet Tracer's operations.
 
 ## Removal
 
-To remove the exported files from your host:
+To unexport the launcher and binary from your host:
 
 ```sh
 distrobox enter ubuntu_box -- distrobox-export --delete --bin /usr/local/bin/packettracer --export-path ~/.local/bin
@@ -186,7 +188,7 @@ distrobox enter ubuntu_box -- distrobox-export --delete --app packettracer
 rm -f ~/.local/share/icons/packettracer.png
 ```
 
-To delete the container completely:
+To delete the container and free disk space:
 
 ```sh
 distrobox stop ubuntu_box
