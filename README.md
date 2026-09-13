@@ -1,19 +1,17 @@
 # packettracer-distrobox
 
-Run Cisco Packet Tracer 9 on any Linux distribution (Fedora, Arch Linux, openSUSE, Debian, Void, etc.) using Distrobox.
+Run Cisco Packet Tracer 9 on any distro using Distrobox.
 
-## The problem
+## Why distrobox
 
-Cisco only packages Packet Tracer for Ubuntu LTS releases. Repackaging the `.deb` directly on Fedora, Arch Linux, or openSUSE fails because modern host libraries (Qt, OpenSSL, ICU) diverge from what Cisco linked against.
+Cisco only ships Packet Tracer as a `.deb` for Ubuntu LTS. Installing that `.deb` directly on other distros fails because host libraries (Qt, OpenSSL, ICU) don't match what Cisco built against.
 
-Packet Tracer 9.x ships internally as an AppImage with bundled Qt6 libraries. Running it in an Ubuntu Distrobox container provides the native environment it expects while keeping your host display server (Wayland or X11), audio, and home directory.
+Packet Tracer 9.x is an AppImage with its own Qt6 bundled in. An Ubuntu Distrobox container gives it the environment it expects, and it still uses your display (Wayland or X11), audio, and home directory.
 
-Three specific issues break naive installs inside a container:
+Three things break a plain install in a container:
 1. Ubuntu 24.04+ ships `fuse3` (`/bin/fusermount3`), while the AppImage runner looks for `/bin/fusermount`.
 2. The bundled QtWebEngine components crash without `libOpenGL.so.0`, `libnss3`, and `libpulse0`.
-3. The `.deb` extracts `/opt/pt/packettracer.AppImage` without putting a `.desktop` file into `/usr/share/applications`, which causes `distrobox-export --app` to fail.
-
-The steps below address all three.
+3. The `.deb` extracts `/opt/pt/packettracer.AppImage` with no `.desktop` file in `/usr/share/applications`, so `distrobox-export --app` fails.
 
 ## Prerequisites
 
@@ -72,16 +70,16 @@ distrobox-export --app packettracer --export-label none
 exit
 ```
 
-### 3. Sync the icon to the host
+### 3. Copy the icon to the host
 
-Run this on your host to ensure desktop launchers (GNOME, KDE Plasma, XFCE) display the application icon:
+Run this on your host so the app menu shows the icon:
 
 ```sh
 mkdir -p ~/.local/share/icons
 distrobox enter ubuntu_box -- cat /usr/share/pixmaps/packettracer.png > ~/.local/share/icons/packettracer.png
 ```
 
-Launch Packet Tracer by running `packettracer` from any host terminal or selecting **Cisco Packet Tracer** in your application menu.
+Launch it with `packettracer` from a terminal, or pick Cisco Packet Tracer in your app menu.
 
 ## Troubleshooting
 
@@ -97,7 +95,7 @@ Fix: Create the symlink inside the container:
 distrobox enter ubuntu_box -- sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
 ```
 
-If your container environment restricts FUSE mounts, tell the AppImage runtime to extract to a temporary folder instead:
+If FUSE mounts are blocked in your container, extract on run instead:
 ```sh
 distrobox enter ubuntu_box -- env APPIMAGE_EXTRACT_AND_RUN=1 packettracer
 ```
@@ -114,7 +112,7 @@ Fix: Install the graphics and security runtime libraries in the container:
 distrobox enter ubuntu_box -- sudo apt install -y libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0
 ```
 
-### Benign console output
+### Harmless terminal output
 
 When starting from a terminal, you may see:
 ```
@@ -122,7 +120,7 @@ When starting from a terminal, you may see:
 sh: 1: last: not found
 ```
 
-These are harmless warnings from QtWebEngine looking for system D-Bus and the `last` utility inside the container. They do not affect Packet Tracer.
+Harmless warnings. QtWebEngine looks for system D-Bus and the `last` utility in the container, Packet Tracer works fine without them.
 
 ## Removal
 
