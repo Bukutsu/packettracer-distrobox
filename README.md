@@ -37,6 +37,21 @@ sudo apt install -y fuse3 libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0 l
 sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
 ```
 
+Create a wrapper for `/usr/local/bin/packettracer` to isolate Qt from host KDE/dark palettes:
+
+```sh
+sudo tee /usr/local/bin/packettracer > /dev/null << 'EOF'
+#!/bin/sh
+export XDG_CURRENT_DESKTOP=""
+export KDE_FULL_SESSION=""
+export KDE_SESSION_VERSION=""
+export QT_QPA_PLATFORMTHEME=""
+export QT_STYLE_OVERRIDE="Fusion"
+exec /opt/pt/packettracer.AppImage "$@"
+EOF
+sudo chmod +x /usr/local/bin/packettracer
+```
+
 Install the downloaded `.deb` package (Distrobox shares your host home directory, so `~/Downloads` is available):
 
 ```sh
@@ -110,6 +125,19 @@ Error:
 Fix: Install the graphics and security runtime libraries in the container:
 ```sh
 distrobox enter ubuntu_box -- sudo apt install -y libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0
+```
+
+### Weird UI colors or dark theme clashes on KDE
+
+Packet Tracer hardcodes light canvas and icon assets. When host KDE dark mode is active, Qt inherits `~/.config/kdeglobals`, causing unreadable black text on dark buttons and inverted workspace elements.
+
+Fix: Ensure `/usr/local/bin/packettracer` inside the container isolates the environment as shown in step 2:
+```sh
+export XDG_CURRENT_DESKTOP=""
+export KDE_FULL_SESSION=""
+export KDE_SESSION_VERSION=""
+export QT_QPA_PLATFORMTHEME=""
+export QT_STYLE_OVERRIDE="Fusion"
 ```
 
 ### Harmless terminal output
