@@ -37,7 +37,13 @@ sudo apt install -y fuse3 libopengl0 libgl1 libegl1 libnss3 libnspr4 libpulse0 l
 sudo ln -sf /bin/fusermount3 /usr/local/bin/fusermount
 ```
 
-Create a wrapper for `/usr/local/bin/packettracer` to isolate Qt from host KDE/dark palettes:
+Install the downloaded `.deb` package (Distrobox shares your host home directory, so `~/Downloads` is available):
+
+```sh
+sudo apt install -y ~/Downloads/CiscoPacketTracer_*.deb
+```
+
+Replace the default `/usr/local/bin/packettracer` symlink created by Cisco's installer with a wrapper that isolates Qt from host KDE/dark palettes:
 
 ```sh
 sudo tee /usr/local/bin/packettracer > /dev/null << 'EOF'
@@ -50,12 +56,6 @@ export QT_STYLE_OVERRIDE="Fusion"
 exec /opt/pt/packettracer.AppImage "$@"
 EOF
 sudo chmod +x /usr/local/bin/packettracer
-```
-
-Install the downloaded `.deb` package (Distrobox shares your host home directory, so `~/Downloads` is available):
-
-```sh
-sudo apt install -y ~/Downloads/CiscoPacketTracer_*.deb
 ```
 
 Extract the application icon and register a system `.desktop` file:
